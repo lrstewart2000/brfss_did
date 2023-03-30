@@ -1,12 +1,7 @@
 
-* set directory and globals
-	cd "/Users/lukestewart/Dropbox (MIT)/14.33/Project/Data/Processing/Scripts"
-
-	global scripts = c(pwd) + "/"
-	global output = subinstr("$scripts", "Scripts/", "Output/",.)
-	global source = subinstr("$scripts", "Processing/Scripts/", "Source/BRFSS",.)
-	global root = subinstr("$scripts", "Processing/Scripts/", "Source",.)
-	
+/*************************
+this script imports and processes all separate brfss data files from 1993 onward
+**************************/
 * 1993
 	import sasxport5 "$source/CDBRFS93.XPT", clear
 	rename *, upper
