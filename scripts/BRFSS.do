@@ -1,7 +1,87 @@
 
 /*************************
 this script imports and processes all separate brfss data files from 1993 onward
-**************************/
+interview info:
+    disposition
+    interview date
+calculated basic vars:
+    state
+    weight
+    psu id
+demographics:
+    number of adults (men/women)
+    marital status - MARTIAL has not changed too much through time, but will probably do one hot encoding for marriage
+    education - EDUCA changed coding from 1992 to 1993, should probably just do college and noncollege, or no hs, hs, and college
+    lf status - EMPLOY appears to retain mostly the same encoding, can interpret "out of work" to mean unemployed probably
+    income - strategy on income should be to find bin in which some percentile of the income distribution falls and one-hot a low income variable, maybe for bottom quartile
+    sex - prior to 2018 was a binary variable for male female called SEX. 2018 included DK/NS and refused option, called SEX1. 2019 introduced BIRTHSEX
+    race - use the question of "best represents your race" (ORACE#) and encode wbho
+    age - becomes binned in 2014, probably best to do 18-24, 25-54, 55+
+behavior
+    smoking
+    doctor's visit (checkup)
+**************************/ 
+* loop through years (we'll see if this is feasible)
+local lowinc_cat 3
+forvalues year = 1994/2000 {
+* set locals
+    if `year' == 1994 local incvar INCOME
+    if `year' == 1995 local incvar INCOME1995
+    if inrange(`year', 1996, 2020) local incvar INCOME2
+    if `year' == 2021 local incvar INCOME3
+* load data
+	import sasxport5 "$data/raw/brfss`year'.XPT", clear
+
+* rename to all caps
+    rename *, upper 
+	rename _*, upper
+	
+* keep only necessary vars and completed interviews
+	keep _FINALWT _STATE IYEAR IMONTH IDAY DISPCODE AGE MARITAL EDUCA EMPLOY INCOME SEX RACE CHECKUP STOPSMOK _SMOKER2
+    keep if DISPCODE == 1
+
+* handle missings
+    replace AGE = . if inlist(AGE, 7, 9)
+    replace RACE = . if RACE == 99
+    replace EDUCA = . if EDUCA == 9
+    replace EMPLOY = . if EMPLOY == 9
+    replace INCOME = . if inlist(INCOME, 77, 99)
+    replace MARITAL = . if MARITAL == 9
+    replace _SMOKER2 = . if _SMOKER2 == 9
+    replace STOPSMOK = . if inlist(STOPSMOK, 7, 9)
+
+* recode select demographics
+    if `year' <= 2013 recode AGE 18/24=1
+    recode RACE 1=1 2=2 3/5=3 6/8=4, gen(wbho)
+    recode EDUCA 1/3=1 4=2 5=3 6=4, gen(educ4)
+    gen lowinc = INCOME <= `lowinc_cat'
+    gen married = MARITAL == 1
+    recode EMPLOY 1/2=1 3/4=2 5/8=3, gen(lfstat)
+
+* get interview date
+    gen idate_str = IDAY + "-" + IMONTH + "-19" + IYEAR
+    gen idate = date(idate_str, "DMY")
+    format idate %td
+    gen year = yofd(idate)
+
+* recode smoking variables
+    gen smoker = inlist(_SMOKER, 1,2,3,4,5)
+    gen stopsmok = STOPSMOK == 1 if !mi(STOPSMOK)
+    assert mi(stopsmok) if smoker == 0
+
+* rename and save to append
+    ren (_FINALWT _STATE AGE) (wgt fips age)
+    gen id = "`year'" + string(_n)
+    keep id wgt fips age wbho educ4 lowinc married lfstat idate year smoker stopsmok
+
+    tempfile temp`year'
+    save `temp`year''
+}
+forvalues year = 1994/1999 {
+    append using `temp`year''
+}
+
+exit
 * 1993
 	import sasxport5 "$source/CDBRFS93.XPT", clear
 	rename *, upper
