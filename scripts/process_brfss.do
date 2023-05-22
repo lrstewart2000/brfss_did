@@ -1,31 +1,32 @@
 /*****************************************************************************************
-This script uses BRFSS data to get shares by state and year of people with various 
-health conditions/behaviors: current smoker, recent binge drinking event, obese, 
-overweight, and inactive 
+This script processes raw BRFSS data to be consistent over time, harmonizing demographic
+variables and creating indicators for certain health behaviors/outcomes which use roughly
+consistent definitions over time
 *****************************************************************************************/
 
 clear all
 
-forvalues year = 1984/2019 {
+forvalues year = 1993/2021 {
+    display "...........................`year'......................."
     /* note that calculated variables like _smoker change names to _smoker2, but stata will
     handle these automatically, no need to rename */
     if `year' <= 1986 {
         local wt _finalwt
-        local usevars _smoker drinkany drinkge5 exerany _state `wt'
-        use `usevars' using "$root/raw/brfss/temp/`year'", clear 
+        local usevars orace hispan _smoker drinkany drinkge5 exerany _state `wt'
+        use `usevars' using "$data/temp/`year'", clear 
     }
     else if inrange(`year', 1987, 1993) {
         local wt _finalwt
-        local usevars _smoker drinkany drinkge5 _bmi exerany _state `wt'
-        use `usevars' using "$root/raw/brfss/temp/`year'", clear 
+        local usevars orace hispan _smoker drinkany drinkge5 _bmi exerany _state `wt'
+        use `usevars' using "$data/temp/`year'", clear 
 
         replace _bmi = _bmi/10
     }
     else if inrange(`year', 1994, 2000) {
         local wt _finalwt
         if `year' == 2000 local bmi2 2
-        local usevars _smoker2 drinkany drinkge5 _bmi`bmi2' exerany _state `wt'
-        use `usevars' using "$root/raw/brfss/temp/`year'", clear 
+        local usevars orace hispan _smoker2 drinkany drinkge5 _bmi`bmi2' exerany _state `wt'
+        use `usevars' using "$data/temp/`year'", clear 
         rename _smoker2 _smoker
         rename _bmi`bmi2' _bmi
 
@@ -34,8 +35,16 @@ forvalues year = 1984/2019 {
     else if inrange(`year', 2001, 2019) {
         if `year' < 2011 local wt _finalwt
         if `year' >= 2011 local wt _llcpwt
-        local usevars _smoker? drnkany? drnk?ge5 alcday _bmi? exerany2 _state `wt'
-        use `usevars' using "$root/raw/brfss/temp/`year'", clear 
+        if `year' == 2013 {
+            local race _prace1
+            local hispan _hispanc
+        }
+        else if `year' != 2013 {
+            local race orace
+            local hispan hispanc
+        }
+        local usevars `race' `hispan' _smoker? drnkany? drnk?ge5 alcday _bmi? exerany2 _state `wt' 
+        use `usevars' using "$data/temp/`year'", clear 
         rename _smoker? _smoker
         rename _bmi? _bmi
         rename drnkany? drinkany
@@ -45,7 +54,26 @@ forvalues year = 1984/2019 {
         if `year' == 2001 replace _bmi = _bmi/10000
         else replace _bmi = _bmi/100
     }
+
+    *** DEMOGRAPHICS ***
+    if `year' < 2001 {
+        recode orace 1=1 2=2 3=4 4/9=5, gen(wbhao)
+        replace wbhao = 3 if hispanic == 1
+    }
+    else if `year' < 2013 {
+        recode orace2 1=1 2=2 3/4=4 5/9=5, gen(wbhao)
+        replace wbhao = 3 if hispanc2 == 1
+    }
+    else if `year' == 2013 {
+        recode _prace1 1=1 2=2 4/5=4 6/99=5, gen(wbhao)
+        replace wbhao = 3 if _hispanc == 1
+    }
+    else if `year' > 2013 {
+        recode orace3 10=1 20=2 40/54=4 60/99=5, gen(wbhao)
+        replace wbhao = 3 if inlist(hispanc3, 1, 2, 3, 4, 5)
+    }
 	
+    *** HEALTH INDICATORS ***
     /* definition of _smoker == 1 here is that you have smoked at least 100 cigarettes in
     your life, you consider yourself an active smoker, and you smoke regularly */
 	gen byte smoker = _smoker == 1
@@ -79,17 +107,10 @@ forvalues year = 1984/2019 {
     outside of work, and is 0 if they did (DK/NS and refusal set this to missing) */
 	gen inactive = exerany == 2
 	replace inactive = . if exerany == . | exerany == 9 | exerany == 7
-	
-    * keep only states with valid fips and not alaska hawaii
-	keep if _state <= 56 & !inlist(_state, 2, 15)
-	collapse (mean) smoker binge obese overweight inactive (rawsum) wt = `wt' [aw=`wt'], ///
-        by(_state) fast 
-	replace wt = int(wt)
 
 	gen year = `year'
 	rename _state fips
-	
-	compress
+    keep year fips wbhao smoker binge obese overweight inactive
 	tempfile `year'
 	save ``year''
 }
@@ -97,28 +118,11 @@ forvalues year = 1984 / 2018 {
 	append using ``year''
 }
 
-* make graphs of these over time to make sure they look smooth 
-preserve
-    collapse (mean) smoker binge obese overweight inactive [aw=wt], by(year) fast
-        line smoker binge obese overweight inactive year, xti("") ///
-        lc(cranberry orange green navy purple) lp(solid dash solid dash solid) ///
-        legend(order(1 "share smoke every day" 2 "share binge drink last month" ///
-        3 "share obese" 4 "share overweight or obese" 5 "share no exercise last 30 days")) ///
-        ti("Key BRFSS Indicators") xlab(1990(5)2020)
-    graph export "$root/figures/brfss_indicators.pdf", replace
-restore
-
-statastates, fips(fips)
-drop if _merge == 2
-assert _merge == 3
-drop _merge 
-
+* save
 label variable smoker "share smoke every day"
 label variable binge "share binge drink last month"
 label variable obese "share obese"
 label variable overweight "share overweight or obese"
 label variable inactive "share no exercise last 30 days"
-label variable wt "sum of weights (BRFSS)"
 compress
-label data "key BRFSS indicators"
-save "$root/mid/brfss_state", replace 
+save "$data/brfss_combined", replace
