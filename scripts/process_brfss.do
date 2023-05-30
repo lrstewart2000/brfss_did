@@ -12,39 +12,44 @@ forvalues year = 1993/2021 {
     handle these automatically, no need to rename */
     if `year' <= 1986 {
         local wt _finalwt
-        local usevars orace hispan _smoker drinkany drinkge5 exerany _state `wt'
-        use `usevars' using "$data/temp/`year'", clear 
+        local usevars _ageg5yr orace hispan income _smoker drinkany drinkge5 exerany _state `wt' 
+        use `usevars' using "$data/temp/brfss/`year'", clear 
     }
     else if inrange(`year', 1987, 1993) {
         local wt _finalwt
-        local usevars orace hispan _smoker drinkany drinkge5 _bmi exerany _state `wt'
-        use `usevars' using "$data/temp/`year'", clear 
+        local usevars _ageg5yr orace hispan income _smoker drinkany drinkge5 _bmi exerany _state `wt'
+        use `usevars' using "$data/temp/brfss/`year'", clear 
 
         replace _bmi = _bmi/10
     }
     else if inrange(`year', 1994, 2000) {
         local wt _finalwt
         if `year' == 2000 local bmi2 2
-        local usevars orace hispan _smoker2 drinkany drinkge5 _bmi`bmi2' exerany _state `wt'
-        use `usevars' using "$data/temp/`year'", clear 
+        local usevars _ageg5yr orace hispan income _smoker2 drinkany drinkge5 _bmi`bmi2' exerany _state `wt'
+        use `usevars' using "$data/temp/brfss/`year'", clear 
         rename _smoker2 _smoker
         rename _bmi`bmi2' _bmi
 
         replace _bmi = _bmi/10
     }
-    else if inrange(`year', 2001, 2019) {
+    else if inrange(`year', 2001, 2021) {
         if `year' < 2011 local wt _finalwt
         if `year' >= 2011 local wt _llcpwt
+        if `year' < 2013 {
+            local race _prace
+            local hispan hispanc
+        }
         if `year' == 2013 {
             local race _prace1
             local hispan _hispanc
         }
-        else if `year' != 2013 {
-            local race orace
-            local hispan hispanc
+        if `year' > 2013 {
+            local race _race
+            local hispan _hispanc
         }
-        local usevars `race' `hispan' _smoker? drnkany? drnk?ge5 alcday _bmi? exerany2 _state `wt' 
-        use `usevars' using "$data/temp/`year'", clear 
+        local usevars _ageg5yr `race' `hispan' income _smoker? drnkany? drnk?ge5 alcday _bmi? exerany2 _state `wt' 
+        use `usevars' using "$data/temp/brfss/`year'", clear 
+        gen id = "`year'" + string(_n)
         rename _smoker? _smoker
         rename _bmi? _bmi
         rename drnkany? drinkany
@@ -55,13 +60,16 @@ forvalues year = 1993/2021 {
         else replace _bmi = _bmi/100
     }
 
+    rename `wt' wt
+
     *** DEMOGRAPHICS ***
+    * race
     if `year' < 2001 {
         recode orace 1=1 2=2 3=4 4/9=5, gen(wbhao)
         replace wbhao = 3 if hispanic == 1
     }
     else if `year' < 2013 {
-        recode orace2 1=1 2=2 3/4=4 5/9=5, gen(wbhao)
+        recode _prace 1=1 2=2 3/4=4 5/99=5, gen(wbhao)
         replace wbhao = 3 if hispanc2 == 1
     }
     else if `year' == 2013 {
@@ -69,8 +77,30 @@ forvalues year = 1993/2021 {
         replace wbhao = 3 if _hispanc == 1
     }
     else if `year' > 2013 {
-        recode orace3 10=1 20=2 40/54=4 60/99=5, gen(wbhao)
-        replace wbhao = 3 if inlist(hispanc3, 1, 2, 3, 4, 5)
+        recode _race 1=1 2=2 4/5=4 6 7 9=5, gen(wbhao)
+        replace wbhao = 3 if _hispanc == 1
+    }
+    replace wbhao = . if wbhao == 0
+    assert inlist(wbhao, 1,2,3,4,5,.)
+    label define race_lbl 1 "White" 2 "Black" 3 "Hispanic" 4 "Asian" 5 "Other"
+    label values wbhao race_lbl
+
+    * age
+    ren _ageg5yr agegroup
+    replace agegroup = . if agegroup == 14
+    label define age_lbl 1 "18-24" 2 "25-29" 3 "30-34" 4 "35-39" 5 "40-44" 6 "45-49" 7 "50-54" 8 "55-59" 9 "60-64" 10 "65-69" 11 "70-74" 12 "75-79" 13 "80+"
+    label values agegroup age_lbl
+
+    * income
+    if `year' == 1993 {
+        recode income 1=0 2=10000 3=15000 4=20000 5=25000 6=35000 7=50000 8/9=., gen(min_income)
+    }
+    else if `year' == 1994 {
+        recode income 1=0 2=10000 3=15000 4=20000 5=25000 6=35000 7=50000 8=75000 77/999=., gen(min_income)
+    }
+    else if `year' >= 1995 {
+        rename income* income
+        recode income 1=0 2=10000 3=15000 4=20000 5=25000 6=35000 7=50000 8=75000 77/999=., gen(min_income)
     }
 	
     *** HEALTH INDICATORS ***
@@ -110,19 +140,23 @@ forvalues year = 1993/2021 {
 
 	gen year = `year'
 	rename _state fips
-    keep year fips wbhao smoker binge obese overweight inactive
+    keep year fips wt wbhao agegroup min_income smoker binge obese overweight inactive
 	tempfile `year'
 	save ``year''
 }
-forvalues year = 1984 / 2018 {
+forvalues year = 1993 / 2020 {
 	append using ``year''
 }
 
 * save
+label variable wt "Final survey weight"
+label variable min_income "Income lower bound (based on bin)"
+label variable wbhao "Race"
+label variable agegroup "5 year age group"
 label variable smoker "share smoke every day"
 label variable binge "share binge drink last month"
 label variable obese "share obese"
 label variable overweight "share overweight or obese"
 label variable inactive "share no exercise last 30 days"
 compress
-save "$data/brfss_combined", replace
+save "$data/temp/brfss_combined", replace
