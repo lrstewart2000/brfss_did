@@ -7,6 +7,6 @@ clear all
 set rmsg on 
 
 forvalues y = 1993/2021 {
-	import sasxport5 "$data/raw/brfss`y'.XPT", clear 
-	save "$data/temp/`y'", replace 
+	import sasxport5 "$data/raw/brfss`y'.xpt", clear 
+	save "$data/temp/brfss/`y'", replace 
 }
