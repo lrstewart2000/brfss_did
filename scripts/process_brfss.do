@@ -12,12 +12,12 @@ forvalues year = 1993/2021 {
     handle these automatically, no need to rename */
     if `year' <= 1986 {
         local wt _finalwt
-        local usevars _ageg5yr orace hispan income _smoker drinkany drinkge5 exerany _state `wt' 
+        local usevars _ageg5yr orace hispan income _smoker drinkany drinkge5 exerany educa _state `wt' 
         use `usevars' using "$data/temp/brfss/`year'", clear 
     }
     else if inrange(`year', 1987, 1993) {
         local wt _finalwt
-        local usevars _ageg5yr orace hispan income _smoker drinkany drinkge5 _bmi exerany _state `wt'
+        local usevars _ageg5yr orace hispan income _smoker drinkany drinkge5 _bmi exerany hlthplan educa _state `wt'
         use `usevars' using "$data/temp/brfss/`year'", clear 
 
         replace _bmi = _bmi/10
@@ -25,7 +25,7 @@ forvalues year = 1993/2021 {
     else if inrange(`year', 1994, 2000) {
         local wt _finalwt
         if `year' == 2000 local bmi2 2
-        local usevars _ageg5yr orace hispan income _smoker2 drinkany drinkge5 _bmi`bmi2' exerany _state `wt'
+        local usevars _ageg5yr orace hispan income _smoker2 drinkany drinkge5 _bmi`bmi2' exerany hlthplan educa _state `wt'
         use `usevars' using "$data/temp/brfss/`year'", clear 
         rename _smoker2 _smoker
         rename _bmi`bmi2' _bmi
@@ -33,8 +33,18 @@ forvalues year = 1993/2021 {
         replace _bmi = _bmi/10
     }
     else if inrange(`year', 2001, 2021) {
-        if `year' < 2011 local wt _finalwt
-        if `year' >= 2011 local wt _llcpwt
+        if `year' < 2011 {
+            local wt _finalwt
+            local hlthplan hlthplan
+        }
+        if inrange(`year', 2011, 2020) {
+            local wt _llcpwt
+            local hlthplan hlthpln1
+        }
+        else if `year' == 2021 {
+            local wt _llcpwt
+            local hlthplan priminsr
+        }
         if `year' < 2013 {
             local race _prace
             local hispan hispanc
@@ -47,7 +57,7 @@ forvalues year = 1993/2021 {
             local race _race
             local hispan _hispanc
         }
-        local usevars _ageg5yr `race' `hispan' income _smoker? drnkany? drnk?ge5 alcday _bmi? exerany2 _state `wt' 
+        local usevars _ageg5yr `race' `hispan' income _smoker? drnkany? drnk?ge5 alcday _bmi? exerany2 `hlthplan' _state educa `wt' 
         use `usevars' using "$data/temp/brfss/`year'", clear 
         gen id = "`year'" + string(_n)
         rename _smoker? _smoker
@@ -90,6 +100,9 @@ forvalues year = 1993/2021 {
     replace agegroup = . if agegroup == 14
     label define age_lbl 1 "18-24" 2 "25-29" 3 "30-34" 4 "35-39" 5 "40-44" 6 "45-49" 7 "50-54" 8 "55-59" 9 "60-64" 10 "65-69" 11 "70-74" 12 "75-79" 13 "80+"
     label values agegroup age_lbl
+
+    * education
+    recode educa 1/5=0 6=1 9=., gen(college)
 
     * income
     if `year' == 1993 {
@@ -138,9 +151,20 @@ forvalues year = 1993/2021 {
 	gen inactive = exerany == 2
 	replace inactive = . if exerany == . | exerany == 9 | exerany == 7
 
+    * uninsured dummy
+    if `year' <= 2010 {
+        recode hlthplan 1=0 2=1 7/9=., gen(uninsured)
+    }
+    else if inrange(`year', 2011, 2020) {
+        recode hlthpln1 1=0 2=1 7/9=., gen(uninsured)
+    }
+    else if `year' == 2021 {
+        recode priminsr 88=1 77 99=. *=0, gen(uninsured)
+    }
+
 	gen year = `year'
 	rename _state fips
-    keep year fips wt wbhao agegroup min_income smoker binge obese overweight inactive
+    keep year fips wt wbhao agegroup min_income smoker binge obese overweight inactive uninsured college
 	tempfile `year'
 	save ``year''
 }
@@ -153,10 +177,9 @@ label variable wt "Final survey weight"
 label variable min_income "Income lower bound (based on bin)"
 label variable wbhao "Race"
 label variable agegroup "5 year age group"
-label variable smoker "share smoke every day"
-label variable binge "share binge drink last month"
-label variable obese "share obese"
-label variable overweight "share overweight or obese"
-label variable inactive "share no exercise last 30 days"
+label variable smoker "smokes every day"
+label variable inactive "no exercise last 30 days"
+label variable uninsured "No health coverage"
+label variable college "College educated"
 compress
 save "$data/temp/brfss_combined", replace
